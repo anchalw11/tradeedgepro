@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Zap, TrendingUp, TrendingDown, Clock, Target, AlertTriangle, CheckCircle, Filter, Shield, XCircle, CheckSquare } from 'lucide-react';
+import { Zap, TrendingUp, TrendingDown, Clock, Target, AlertTriangle, CheckCircle, Filter, Shield, XCircle, CheckSquare, Globe, Send, Copy, RefreshCw } from 'lucide-react';
 import TradingViewMiniChart from './TradingViewMiniChart';
 import { useTradingPlan } from '../contexts/TradingPlanContext';
 import { addTrade } from '../../trading-journal-frontend/src/api';
@@ -25,6 +25,10 @@ interface Signal {
 const SignalsFeed = () => {
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [showWebhookPanel, setShowWebhookPanel] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('https://zp1v56uxy8rdx5ypatb0ockcb9tr6a-oci3--5173--96435430.local-credentialless.webcontainer-api.io/');
+  const [webhookResults, setWebhookResults] = useState<any[]>([]);
+  const [isTestingWebhook, setIsTestingWebhook] = useState(false);
   const { propFirm, accountConfig, riskConfig } = useTradingPlan();
 
   const handleTradeTaken = async (signal: Signal) => {
@@ -120,6 +124,82 @@ const SignalsFeed = () => {
       safe: warnings.length === 0,
       warnings
     };
+  };
+
+  // Webhook testing function
+  const testWebhook = async (signal?: Signal) => {
+    setIsTestingWebhook(true);
+    
+    const testPayload = signal ? {
+      type: 'trading_signal',
+      timestamp: new Date().toISOString(),
+      source: 'TraderEdge Pro',
+      signal: {
+        id: signal.id,
+        pair: signal.pair,
+        direction: signal.type,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        confidence: signal.confidence,
+        analysis: signal.analysis,
+        ictConcepts: signal.ictConcepts
+      }
+    } : {
+      type: 'webhook_test',
+      timestamp: new Date().toISOString(),
+      source: 'TraderEdge Pro',
+      message: 'Test webhook from TraderEdge Pro Dashboard',
+      test_data: {
+        symbol: 'EURUSD',
+        price: 1.0850,
+        action: 'test'
+      }
+    };
+
+    try {
+      // Attempt to send webhook
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'TraderEdge-Pro-Webhook/1.0'
+        },
+        body: JSON.stringify(testPayload),
+        mode: 'cors'
+      });
+
+      const result = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        status: response.ok ? 'success' : 'error',
+        statusCode: response.status,
+        url: webhookUrl,
+        payload: testPayload,
+        response: response.ok ? 'Webhook delivered successfully' : `HTTP ${response.status}: ${response.statusText}`
+      };
+
+      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
+      
+    } catch (error: any) {
+      const result = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        status: 'error',
+        statusCode: 0,
+        url: webhookUrl,
+        payload: testPayload,
+        response: `Connection failed: ${error.message}`
+      };
+
+      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
+    } finally {
+      setIsTestingWebhook(false);
+    }
+  };
+
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
   };
 
   const signals: Signal[] = [
@@ -278,9 +358,126 @@ const SignalsFeed = () => {
               <option value="confidence">Highest Confidence</option>
               <option value="profit">Best Performance</option>
             </select>
+            
+            <button
+              onClick={() => setShowWebhookPanel(!showWebhookPanel)}
+              className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <Globe className="w-4 h-4" />
+              <span>Webhook Test</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Webhook Testing Panel */}
+      {showWebhookPanel && (
+        <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Globe className="w-6 h-6 text-purple-400" />
+            <h3 className="text-xl font-semibold text-white">Webhook Testing</h3>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Webhook Configuration */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Webhook URL</label>
+                <div className="flex space-x-2">
+                  <input
+                    type="url"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
+                    placeholder="Enter your webhook URL"
+                  />
+                  <button
+                    onClick={copyWebhookUrl}
+                    className="px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => testWebhook()}
+                  disabled={isTestingWebhook || !webhookUrl}
+                  className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  {isTestingWebhook ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Testing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Test Webhook</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
+                <div className="text-blue-400 font-semibold mb-2">Webhook Information</div>
+                <div className="text-sm text-gray-300 space-y-1">
+                  <p>• This will send a POST request to your webhook URL</p>
+                  <p>• Signals can be automatically sent to your webhook</p>
+                  <p>• Your webhook should accept JSON payloads</p>
+                  <p>• CORS must be enabled for browser requests</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Webhook Results */}
+            <div>
+              <h4 className="text-lg font-semibold text-white mb-4">Test Results</h4>
+              
+              {webhookResults.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <Send className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No webhook tests performed yet</p>
+                  <p className="text-sm">Click "Test Webhook" to send a test payload</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {webhookResults.map((result) => (
+                    <div key={result.id} className={`p-4 rounded-lg border ${
+                      result.status === 'success' 
+                        ? 'bg-green-600/20 border-green-600' 
+                        : 'bg-red-600/20 border-red-600'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          {result.status === 'success' ? (
+                            <CheckCircle className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-400" />
+                          )}
+                          <span className={`font-medium ${
+                            result.status === 'success' ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {result.status === 'success' ? 'Success' : 'Failed'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {new Date(result.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-300">
+                        <div>Status: {result.statusCode}</div>
+                        <div>Response: {result.response}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TradingView Chart */}
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
@@ -403,9 +600,23 @@ const SignalsFeed = () => {
                       {(() => {
                         const ruleCheck = checkRuleBreach(signal);
                         return ruleCheck.safe ? (
-                          <button className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">
-                            Copy Trade
-                          </button>
+                          <div className="mt-4 space-y-2">
+                            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">
+                              Copy Trade
+                            </button>
+                            <button
+                              onClick={() => testWebhook(signal)}
+                              disabled={isTestingWebhook}
+                              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 text-white py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-1"
+                            >
+                              {isTestingWebhook ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Send className="w-3 h-3" />
+                              )}
+                              <span>Send to Webhook</span>
+                            </button>
+                          </div>
                         ) : (
                           <button 
                             disabled
