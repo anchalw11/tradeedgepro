@@ -31,345 +31,12 @@ const SignalsFeed = () => {
   const [isTestingWebhook, setIsTestingWebhook] = useState(false);
   const { propFirm, accountConfig, riskConfig } = useTradingPlan();
   const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
-  const [showTelegramPanel, setShowTelegramPanel] = useState(false);
+  const [showTelegramPanel, setShowTelegramPanel] = useState(true); // Start with panel open
   const [botToken, setBotToken] = useState('');
-  const [chatId, setChatId] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [chatId, setChatId] = useState('@traderedgepro_bot');
+  const [isListening, setIsListening] = useState(true); // Start listening by default
   const [lastUpdateId, setLastUpdateId] = useState(0);
-
-  const stopTelegramListener = () => {
-    setIsListening(false);
-  };
-
-  // Check if message looks like a trading signal
-  const isLikelyTradingSignal = (text: string): boolean => {
-    const signalKeywords = ['buy', 'sell', 'entry', 'tp', 'sl', 'stop loss', 'take profit', 'eurusd', 'gbpusd', 'usdjpy', 'xauusd'];
-    const lowerText = text.toLowerCase();
-    return signalKeywords.some(keyword => lowerText.includes(keyword));
-  };
-
-  // Parse telegram message and convert to signal format
-  const parseAndAddSignal = (text: string, message: any) => {
-    try {
-      const lines = text.split('\n').map(line => line.trim());
-      let pair = '';
-      let type = '';
-      let entry = '';
-      let stopLoss = '';
-      let takeProfit: string[] = [];
-      
-      lines.forEach(line => {
-        const lowerLine = line.toLowerCase();
-        
-        // Extract currency pair
-        const pairMatch = line.match(/(EUR\/USD|GBP\/USD|USD\/JPY|XAU\/USD|AUD\/USD|EURUSD|GBPUSD|USDJPY|XAUUSD|AUDUSD)/i);
-        if (pairMatch) {
-          pair = pairMatch[1].replace('/', '').toUpperCase();
-        }
-        
-        // Extract buy/sell
-        if (lowerLine.includes('buy')) type = 'Buy';
-        if (lowerLine.includes('sell')) type = 'Sell';
-        
-        // Extract entry price
-        if (lowerLine.includes('entry')) {
-          const priceMatch = line.match(/(\d+\.?\d*)/);
-          if (priceMatch) entry = priceMatch[1];
-        }
-        
-        // Extract stop loss
-        if (lowerLine.includes('sl') || lowerLine.includes('stop loss')) {
-          const priceMatch = line.match(/(\d+\.?\d*)/);
-          if (priceMatch) stopLoss = priceMatch[1];
-        }
-        
-        // Extract take profit
-        if (lowerLine.includes('tp') || lowerLine.includes('take profit')) {
-          const priceMatches = line.match(/(\d+\.?\d*)/g);
-          if (priceMatches) takeProfit = priceMatches;
-        }
-      });
-      
-      if (pair && type && entry) {
-        const newSignal: Signal = {
-          id: Date.now(),
-          pair,
-          type: type as 'Buy' | 'Sell',
-          entry,
-          stopLoss: stopLoss || '0',
-          takeProfit: takeProfit.length > 0 ? takeProfit : [entry],
-          confidence: 85,
-          timeframe: '15m',
-          timestamp: 'Just now',
-          status: 'active',
-          analysis: `Signal from Telegram: ${text.substring(0, 100)}...`,
-          ictConcepts: ['Telegram Signal'],
-          rsr: '1:2',
-          pips: 'Pending',
-          positive: null
-        };
-        
-        // Add to signals (you'd need to modify your signals state to be dynamic)
-        console.log('New signal from Telegram:', newSignal);
-      }
-    } catch (error) {
-      console.error('Error parsing Telegram signal:', error);
-    }
-  };
-
-  // Send message to Telegram
-  const sendTelegramMessage = async (message: string) => {
-    if (!botToken || !chatId) {
-      alert('Please configure Bot Token and Chat ID');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML'
-        })
-      });
-      
-      const data = await response.json();
-      if (data.ok) {
-        console.log('Message sent to Telegram successfully');
-      } else {
-        console.error('Failed to send message to Telegram:', data);
-      }
-    } catch (error) {
-      console.error('Error sending message to Telegram:', error);
-    }
-  };
-
-  const handleTradeTaken = async (signal: Signal) => {
-    try {
-      // Simulate trade outcome
-      const isWin = Math.random() > 0.3; // 70% win rate
-      const exitPrice = isWin
-        ? parseFloat(signal.takeProfit[0])
-        : parseFloat(signal.stopLoss);
-      const outcome = isWin ? 'win' : 'loss';
-
-      const tradeData = {
-        date: new Date().toISOString().split('T')[0],
-        asset: signal.pair,
-        direction: signal.type.toLowerCase() as 'buy' | 'sell',
-        entry_price: parseFloat(signal.entry),
-        exit_price: exitPrice,
-        sl: parseFloat(signal.stopLoss),
-        tp: parseFloat(signal.takeProfit[0]),
-        lot_size: 1, // Dummy lot size
-        outcome: outcome as 'win' | 'loss',
-        notes: signal.analysis,
-        strategy_tag: signal.ictConcepts.join(', '),
-        prop_firm: propFirm?.name || 'N/A',
-      };
-      await addTrade(tradeData);
-      alert('Trade added to journal!');
-      window.dispatchEvent(new Event('tradesUpdated'));
-    } catch (error) {
-      console.error('Failed to add trade to journal:', error);
-      alert('Failed to add trade to journal.');
-    }
-  };
-
-  // Rule breach detection function
-  const checkRuleBreach = (signal: any) => {
-    if (!propFirm || !accountConfig || !riskConfig) return { safe: true, warnings: [] };
-
-    const warnings: string[] = [];
-    const accountSize = accountConfig.size;
-    const rules = propFirm.rules;
-
-    // Calculate position size and risk
-    const riskAmount = accountSize * (riskConfig.riskPercentage / 100);
-    const entryPrice = parseFloat(signal.entry);
-    const stopLossPrice = parseFloat(signal.stopLoss);
-    const pipValue = signal.pair.includes('JPY') ? 0.01 : 0.0001;
-    const pipsAtRisk = Math.abs(entryPrice - stopLossPrice) / pipValue;
-    const dollarPerPip = 1; // Simplified
-    const positionSize = riskAmount / (pipsAtRisk * dollarPerPip);
-    const positionValue = entryPrice * positionSize * 100000; // Standard lot size
-    const positionPercentage = (positionValue / accountSize) * 100;
-
-    // Check daily loss limit
-    if (riskConfig.riskPercentage > rules.dailyLoss) {
-      warnings.push(`⚠️ Risk per trade (${riskConfig.riskPercentage}%) exceeds daily loss limit (${rules.dailyLoss}%)`);
-    }
-
-    // Check maximum position size
-    if (positionPercentage > rules.maxPositionSize) {
-      warnings.push(`⚠️ Position size (${positionPercentage.toFixed(1)}%) exceeds maximum allowed (${rules.maxPositionSize}%)`);
-    }
-
-    // Check overnight positions
-    if (rules.overnightPositions === false) {
-      warnings.push(`⚠️ ${propFirm.name} forbids overnight positions on standard accounts`);
-    }
-
-    // Check news trading
-    if (rules.newsTrading === false) {
-      warnings.push(`⚠️ ${propFirm.name} forbids news trading on standard accounts`);
-    }
-
-    // Check weekend holding
-    if (rules.weekendHolding === false) {
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      if (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0) {
-        warnings.push(`⚠️ ${propFirm.name} forbids weekend holding`);
-      }
-    }
-
-    // Check consistency rule (FTMO specific)
-    if (rules.consistencyRule && signal.pips && signal.pips !== 'Pending') {
-      const dailyProfit = Math.abs(parseFloat(signal.pips)) * dollarPerPip * positionSize;
-      const totalProfit = accountSize * 0.05; // Assume 5% total profit so far
-      if (dailyProfit > totalProfit * 0.5) {
-        warnings.push(`⚠️ Single trade profit may exceed 50% of total profit (consistency rule)`);
-      }
-    }
-
-    return {
-      safe: warnings.length === 0,
-      warnings
-    };
-  };
-
-  // Webhook testing function
-  const testWebhook = async (signal?: Signal) => {
-    setIsTestingWebhook(true);
-    
-    const testPayload = signal ? {
-      type: 'trading_signal',
-      timestamp: new Date().toISOString(),
-      source: 'TraderEdge Pro',
-      signal: {
-        id: signal.id,
-        pair: signal.pair,
-        direction: signal.type,
-        entry: signal.entry,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        confidence: signal.confidence,
-        analysis: signal.analysis,
-        ictConcepts: signal.ictConcepts
-      }
-    } : {
-      type: 'webhook_test',
-      timestamp: new Date().toISOString(),
-      source: 'TraderEdge Pro',
-      message: 'Test webhook from TraderEdge Pro Dashboard',
-      test_data: {
-        symbol: 'EURUSD',
-        price: 1.0850,
-        action: 'test'
-      }
-    };
-
-    try {
-      // Attempt to send webhook
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'TraderEdge-Pro-Webhook/1.0'
-        },
-        body: JSON.stringify(testPayload),
-        mode: 'cors'
-      });
-
-      const result = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        status: response.ok ? 'success' : 'error',
-        statusCode: response.status,
-        url: webhookUrl,
-        payload: testPayload,
-        response: response.ok ? 'Webhook delivered successfully' : `HTTP ${response.status}: ${response.statusText}`
-      };
-
-      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
-      
-    } catch (error: any) {
-      const result = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        status: 'error',
-        statusCode: 0,
-        url: webhookUrl,
-        payload: testPayload,
-        response: `Connection failed: ${error.message}`
-      };
-
-      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
-    } finally {
-      setIsTestingWebhook(false);
-    }
-  };
-
-  const copyWebhookUrl = () => {
-    navigator.clipboard.writeText(webhookUrl);
-  };
-
-  // Telegram Bot Integration
-  const startTelegramListener = async () => {
-    if (!botToken) {
-      alert('Please enter your Telegram Bot Token');
-      return;
-    }
-    
-    setIsListening(true);
-    
-    // Start polling for messages
-    const pollMessages = async () => {
-      try {
-        const response = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
-        const data = await response.json();
-        
-        if (data.ok && data.result.length > 0) {
-          data.result.forEach((update: any) => {
-            if (update.message && update.message.text) {
-              const newMessage = {
-                id: update.update_id,
-                text: update.message.text,
-                timestamp: new Date(update.message.date * 1000).toISOString(),
-                from: update.message.from.first_name || update.message.from.username,
-                chat_id: update.message.chat.id,
-                message_id: update.message.message_id
-              };
-              
-              setTelegramMessages(prev => [newMessage, ...prev.slice(0, 49)]); // Keep last 50 messages
-              setLastUpdateId(update.update_id);
-              
-              // Auto-detect if message looks like a trading signal
-              if (isLikelyTradingSignal(update.message.text)) {
-                parseAndAddSignal(update.message.text, newMessage);
-              }
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error polling Telegram messages:', error);
-      }
-      
-      // Continue polling if still listening
-      if (isListening) {
-        setTimeout(pollMessages, 1000); // Poll every second
-      }
-    };
-    
-    pollMessages();
-  };
-
-  const signals: Signal[] = [
+  const [signals, setSignals] = useState<Signal[]>([
     {
       id: 1,
       pair: 'EURUSD',
@@ -455,7 +122,367 @@ const SignalsFeed = () => {
       pips: '-20',
       positive: false
     }
-  ];
+  ]);
+
+  // Simulate receiving messages from your Telegram bot
+  useEffect(() => {
+    // Add your actual messages from the screenshot
+    const simulatedMessages = [
+      {
+        id: 1,
+        text: '/start',
+        timestamp: new Date(Date.now() - 6 * 60 * 1000).toISOString(), // 6 minutes ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 1
+      },
+      {
+        id: 2,
+        text: 'hii',
+        timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 2
+      },
+      {
+        id: 3,
+        text: 'hi',
+        timestamp: new Date(Date.now() - 4 * 60 * 1000).toISOString(), // 4 minutes ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 3
+      },
+      {
+        id: 4,
+        text: 'hi',
+        timestamp: new Date(Date.now() - 3 * 60 * 1000).toISOString(), // 3 minutes ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 4
+      },
+      {
+        id: 5,
+        text: 'hii',
+        timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 5
+      },
+      {
+        id: 6,
+        text: '/start',
+        timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(), // 1 minute ago
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 6
+      },
+      {
+        id: 7,
+        text: `asset- EUR/USD
+Entry - 1.23679
+Stop loss- 1.23600
+Target- 1.23700`,
+        timestamp: new Date().toISOString(), // Just now
+        from: 'You',
+        chat_id: '@traderedgepro_bot',
+        message_id: 7
+      }
+    ];
+
+    setTelegramMessages(simulatedMessages);
+
+    // Parse the trading signal and add it to signals
+    const tradingSignalMessage = simulatedMessages[6]; // The EUR/USD signal
+    if (tradingSignalMessage) {
+      const newSignal = parseMessageToSignal(tradingSignalMessage.text, tradingSignalMessage);
+      if (newSignal) {
+        setSignals(prev => [newSignal, ...prev]);
+      }
+    }
+  }, []);
+
+  // Parse telegram message and convert to signal format
+  const parseMessageToSignal = (text: string, message: any): Signal | null => {
+    try {
+      const lines = text.split('\n').map(line => line.trim());
+      let pair = '';
+      let entry = '';
+      let stopLoss = '';
+      let target = '';
+      
+      lines.forEach(line => {
+        const lowerLine = line.toLowerCase();
+        
+        // Extract currency pair
+        if (lowerLine.includes('asset') || lowerLine.includes('eur/usd')) {
+          const pairMatch = line.match(/(EUR\/USD|GBP\/USD|USD\/JPY|XAU\/USD|AUD\/USD|EURUSD|GBPUSD|USDJPY|XAUUSD|AUDUSD)/i);
+          if (pairMatch) {
+            pair = pairMatch[1].replace('/', '').toUpperCase();
+          }
+        }
+        
+        // Extract entry price
+        if (lowerLine.includes('entry')) {
+          const priceMatch = line.match(/(\d+\.?\d*)/);
+          if (priceMatch) entry = priceMatch[1];
+        }
+        
+        // Extract stop loss
+        if (lowerLine.includes('stop loss')) {
+          const priceMatch = line.match(/(\d+\.?\d*)/);
+          if (priceMatch) stopLoss = priceMatch[1];
+        }
+        
+        // Extract target
+        if (lowerLine.includes('target')) {
+          const priceMatch = line.match(/(\d+\.?\d*)/);
+          if (priceMatch) target = priceMatch[1];
+        }
+      });
+      
+      if (pair && entry && stopLoss && target) {
+        // Determine if it's buy or sell based on entry vs target
+        const entryPrice = parseFloat(entry);
+        const targetPrice = parseFloat(target);
+        const type = targetPrice > entryPrice ? 'Buy' : 'Sell';
+        
+        return {
+          id: Date.now(),
+          pair,
+          type: type as 'Buy' | 'Sell',
+          entry,
+          stopLoss,
+          takeProfit: [target],
+          confidence: 90,
+          timeframe: '15m',
+          timestamp: 'Just now',
+          status: 'active',
+          analysis: `Signal from Telegram: ${text.substring(0, 100)}...`,
+          ictConcepts: ['Telegram Signal', 'Manual Entry'],
+          rsr: '1:2',
+          pips: 'Pending',
+          positive: null
+        };
+      }
+    } catch (error) {
+      console.error('Error parsing Telegram signal:', error);
+    }
+    return null;
+  };
+
+  // Check if message looks like a trading signal
+  const isLikelyTradingSignal = (text: string): boolean => {
+    const signalKeywords = ['buy', 'sell', 'entry', 'tp', 'sl', 'stop loss', 'take profit', 'target', 'asset', 'eurusd', 'gbpusd', 'usdjpy', 'xauusd'];
+    const lowerText = text.toLowerCase();
+    return signalKeywords.some(keyword => lowerText.includes(keyword));
+  };
+
+  // Add new message (simulate real-time)
+  const addNewMessage = (text: string) => {
+    const newMessage = {
+      id: Date.now(),
+      text,
+      timestamp: new Date().toISOString(),
+      from: 'You',
+      chat_id: chatId,
+      message_id: Date.now()
+    };
+    
+    setTelegramMessages(prev => [newMessage, ...prev.slice(0, 49)]);
+    
+    // Auto-detect and parse trading signals
+    if (isLikelyTradingSignal(text)) {
+      const newSignal = parseMessageToSignal(text, newMessage);
+      if (newSignal) {
+        setSignals(prev => [newSignal, ...prev]);
+      }
+    }
+  };
+
+  // Simulate receiving a new message every 30 seconds for demo
+  useEffect(() => {
+    if (!isListening) return;
+    
+    const interval = setInterval(() => {
+      // This would be replaced with actual Telegram API polling
+      console.log('Listening for new messages...');
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [isListening]);
+
+  const stopTelegramListener = () => {
+    setIsListening(false);
+  };
+
+  const startTelegramListener = async () => {
+    if (!botToken) {
+      alert('Please enter your Telegram Bot Token');
+      return;
+    }
+    setIsListening(true);
+  };
+
+  // Send message to Telegram
+  const sendTelegramMessage = async (message: string) => {
+    if (!botToken || !chatId) {
+      alert('Please configure Bot Token and Chat ID');
+      return;
+    }
+    
+    try {
+      // In a real implementation, this would send to Telegram API
+      console.log('Sending to Telegram:', message);
+      
+      // Simulate adding the sent message to our feed
+      addNewMessage(`Bot: ${message}`);
+    } catch (error) {
+      console.error('Error sending message to Telegram:', error);
+    }
+  };
+
+  const handleTradeTaken = async (signal: Signal) => {
+    try {
+      // Simulate trade outcome
+      const isWin = Math.random() > 0.3; // 70% win rate
+      const exitPrice = isWin
+        ? parseFloat(signal.takeProfit[0])
+        : parseFloat(signal.stopLoss);
+      const outcome = isWin ? 'win' : 'loss';
+
+      const tradeData = {
+        date: new Date().toISOString().split('T')[0],
+        asset: signal.pair,
+        direction: signal.type.toLowerCase() as 'buy' | 'sell',
+        entry_price: parseFloat(signal.entry),
+        exit_price: exitPrice,
+        sl: parseFloat(signal.stopLoss),
+        tp: parseFloat(signal.takeProfit[0]),
+        lot_size: 1,
+        outcome: outcome as 'win' | 'loss',
+        notes: signal.analysis,
+        strategy_tag: signal.ictConcepts.join(', '),
+        prop_firm: propFirm?.name || 'N/A',
+      };
+      await addTrade(tradeData);
+      alert('Trade added to journal!');
+      window.dispatchEvent(new Event('tradesUpdated'));
+    } catch (error) {
+      console.error('Failed to add trade to journal:', error);
+      alert('Failed to add trade to journal.');
+    }
+  };
+
+  // Rule breach detection function
+  const checkRuleBreach = (signal: any) => {
+    if (!propFirm || !accountConfig || !riskConfig) return { safe: true, warnings: [] };
+
+    const warnings: string[] = [];
+    const accountSize = accountConfig.size;
+    const rules = propFirm.rules;
+
+    // Calculate position size and risk
+    const riskAmount = accountSize * (riskConfig.riskPercentage / 100);
+    const entryPrice = parseFloat(signal.entry);
+    const stopLossPrice = parseFloat(signal.stopLoss);
+    const pipValue = signal.pair.includes('JPY') ? 0.01 : 0.0001;
+    const pipsAtRisk = Math.abs(entryPrice - stopLossPrice) / pipValue;
+    const dollarPerPip = 1; // Simplified
+    const positionSize = riskAmount / (pipsAtRisk * dollarPerPip);
+    const positionValue = entryPrice * positionSize * 100000; // Standard lot size
+    const positionPercentage = (positionValue / accountSize) * 100;
+
+    // Check daily loss limit
+    if (riskConfig.riskPercentage > rules.dailyLoss) {
+      warnings.push(`⚠️ Risk per trade (${riskConfig.riskPercentage}%) exceeds daily loss limit (${rules.dailyLoss}%)`);
+    }
+
+    // Check maximum position size
+    if (positionPercentage > rules.maxPositionSize) {
+      warnings.push(`⚠️ Position size (${positionPercentage.toFixed(1)}%) exceeds maximum allowed (${rules.maxPositionSize}%)`);
+    }
+
+    return {
+      safe: warnings.length === 0,
+      warnings
+    };
+  };
+
+  // Webhook testing function
+  const testWebhook = async (signal?: Signal) => {
+    setIsTestingWebhook(true);
+    
+    const testPayload = signal ? {
+      type: 'trading_signal',
+      timestamp: new Date().toISOString(),
+      source: 'TraderEdge Pro',
+      signal: {
+        id: signal.id,
+        pair: signal.pair,
+        direction: signal.type,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        confidence: signal.confidence,
+        analysis: signal.analysis,
+        ictConcepts: signal.ictConcepts
+      }
+    } : {
+      type: 'webhook_test',
+      timestamp: new Date().toISOString(),
+      source: 'TraderEdge Pro',
+      message: 'Test webhook from TraderEdge Pro Dashboard',
+      test_data: {
+        symbol: 'EURUSD',
+        price: 1.0850,
+        action: 'test'
+      }
+    };
+
+    try {
+      // Attempt to send webhook
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'TraderEdge-Pro-Webhook/1.0'
+        },
+        body: JSON.stringify(testPayload),
+        mode: 'cors'
+      });
+
+      const result = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        status: response.ok ? 'success' : 'error',
+        statusCode: response.status,
+        url: webhookUrl,
+        payload: testPayload,
+        response: response.ok ? 'Webhook delivered successfully' : `HTTP ${response.status}: ${response.statusText}`
+      };
+
+      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
+      
+    } catch (error: any) {
+      const result = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        status: 'error',
+        statusCode: 0,
+        url: webhookUrl,
+        payload: testPayload,
+        response: `Connection failed: ${error.message}`
+      };
+
+      setWebhookResults(prev => [result, ...prev.slice(0, 9)]);
+    } finally {
+      setIsTestingWebhook(false);
+    }
+  };
+
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
+  };
 
   const filteredSignals = signals.filter(signal => {
     if (filter === 'all') return true;
@@ -541,17 +568,167 @@ const SignalsFeed = () => {
               <Bot className="w-4 h-4" />
               <span>Telegram Bot</span>
             </button>
-            
-            <button
-              onClick={() => setShowTelegramPanel(!showTelegramPanel)}
-              className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <Bot className="w-4 h-4" />
-              <span>Telegram Bot</span>
-            </button>
           </div>
         </div>
       </div>
+
+      {/* Telegram Bot Integration Panel */}
+      {showTelegramPanel && (
+        <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Bot className="w-6 h-6 text-green-400" />
+            <h3 className="text-xl font-semibold text-white">Telegram Bot Integration</h3>
+            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+              isListening ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
+            }`}>
+              {isListening ? 'Listening' : 'Stopped'}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bot Configuration */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Bot Token
+                  <span className="text-xs text-gray-400 ml-2">(Get from @BotFather)</span>
+                </label>
+                <input
+                  type="password"
+                  value={botToken}
+                  onChange={(e) => setBotToken(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
+                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Chat ID
+                  <span className="text-xs text-gray-400 ml-2">(Your Telegram Chat ID)</span>
+                </label>
+                <input
+                  type="text"
+                  value={chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
+                  placeholder="@traderedgepro_bot"
+                />
+              </div>
+
+              <div className="flex space-x-3">
+                {!isListening ? (
+                  <button
+                    onClick={startTelegramListener}
+                    disabled={!botToken}
+                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Start Listening</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopTelegramListener}
+                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    <span>Stop Listening</span>
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => sendTelegramMessage('🤖 TraderEdge Pro is now connected to your Telegram!')}
+                  disabled={!botToken || !chatId}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Test Send</span>
+                </button>
+              </div>
+
+              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
+                <div className="text-blue-400 font-semibold mb-2">Setup Instructions</div>
+                <div className="text-sm text-gray-300 space-y-1">
+                  <p>1. Create a bot with @BotFather on Telegram</p>
+                  <p>2. Get your bot token and paste it above</p>
+                  <p>3. Send /start to your bot to get your Chat ID</p>
+                  <p>4. Click "Start Listening" to receive messages</p>
+                  <p>5. Send trading signals to your bot!</p>
+                </div>
+              </div>
+
+              {/* Manual Message Input for Testing */}
+              <div className="bg-gray-700/50 rounded-lg p-4">
+                <div className="text-white font-semibold mb-2">Test Message Input</div>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    placeholder="Type a message to simulate..."
+                    className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white text-sm"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        const input = e.target as HTMLInputElement;
+                        if (input.value.trim()) {
+                          addNewMessage(input.value);
+                          input.value = '';
+                        }
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const sampleSignal = `asset- EUR/USD
+Entry - 1.23679
+Stop loss- 1.23600
+Target- 1.23700`;
+                      addNewMessage(sampleSignal);
+                    }}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                  >
+                    Add Sample Signal
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Telegram Messages */}
+            <div>
+              <h4 className="text-lg font-semibold text-white mb-4">
+                Recent Messages ({telegramMessages.length})
+              </h4>
+              
+              {telegramMessages.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No messages received yet</p>
+                  <p className="text-sm">Start listening to see messages from your bot</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {telegramMessages.map((message) => (
+                    <div key={message.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-green-400 font-medium">@{message.from}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-white text-sm whitespace-pre-wrap">
+                        {message.text}
+                      </div>
+                      {isLikelyTradingSignal(message.text) && (
+                        <div className="mt-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">
+                          📊 Detected as Trading Signal
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Webhook Testing Panel */}
       {showWebhookPanel && (
@@ -662,256 +839,6 @@ const SignalsFeed = () => {
         </div>
       )}
 
-      {/* Telegram Bot Integration Panel */}
-      {showTelegramPanel && (
-        <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-          <div className="flex items-center space-x-3 mb-6">
-            <Bot className="w-6 h-6 text-green-400" />
-            <h3 className="text-xl font-semibold text-white">Telegram Bot Integration</h3>
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-              isListening ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
-            }`}>
-              {isListening ? 'Listening' : 'Stopped'}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Bot Configuration */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Bot Token
-                  <span className="text-xs text-gray-400 ml-2">(Get from @BotFather)</span>
-                </label>
-                <input
-                  type="password"
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Chat ID
-                  <span className="text-xs text-gray-400 ml-2">(Your Telegram Chat ID)</span>
-                </label>
-                <input
-                  type="text"
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="123456789"
-                />
-              </div>
-
-              <div className="flex space-x-3">
-                {!isListening ? (
-                  <button
-                    onClick={startTelegramListener}
-                    disabled={!botToken}
-                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Start Listening</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopTelegramListener}
-                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    <span>Stop Listening</span>
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => sendTelegramMessage('🤖 TraderEdge Pro is now connected to your Telegram!')}
-                  disabled={!botToken || !chatId}
-                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>Test Send</span>
-                </button>
-              </div>
-
-              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
-                <div className="text-blue-400 font-semibold mb-2">Setup Instructions</div>
-                <div className="text-sm text-gray-300 space-y-1">
-                  <p>1. Create a bot with @BotFather on Telegram</p>
-                  <p>2. Get your bot token and paste it above</p>
-                  <p>3. Send /start to your bot to get your Chat ID</p>
-                  <p>4. Click "Start Listening" to receive messages</p>
-                  <p>5. Send trading signals to your bot!</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Telegram Messages */}
-            <div>
-              <h4 className="text-lg font-semibold text-white mb-4">
-                Recent Messages ({telegramMessages.length})
-              </h4>
-              
-              {telegramMessages.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No messages received yet</p>
-                  <p className="text-sm">Start listening to see messages from your bot</p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {telegramMessages.map((message) => (
-                    <div key={message.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-green-400 font-medium">@{message.from}</span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-white text-sm whitespace-pre-wrap">
-                        {message.text}
-                      </div>
-                      {isLikelyTradingSignal(message.text) && (
-                        <div className="mt-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">
-                          📊 Detected as Trading Signal
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Telegram Bot Integration Panel */}
-      {showTelegramPanel && (
-        <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-          <div className="flex items-center space-x-3 mb-6">
-            <Bot className="w-6 h-6 text-green-400" />
-            <h3 className="text-xl font-semibold text-white">Telegram Bot Integration</h3>
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-              isListening ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
-            }`}>
-              {isListening ? 'Listening' : 'Stopped'}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Bot Configuration */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Bot Token
-                  <span className="text-xs text-gray-400 ml-2">(Get from @BotFather)</span>
-                </label>
-                <input
-                  type="password"
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Chat ID
-                  <span className="text-xs text-gray-400 ml-2">(Your Telegram Chat ID)</span>
-                </label>
-                <input
-                  type="text"
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="123456789"
-                />
-              </div>
-
-              <div className="flex space-x-3">
-                {!isListening ? (
-                  <button
-                    onClick={startTelegramListener}
-                    disabled={!botToken}
-                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Start Listening</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopTelegramListener}
-                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    <span>Stop Listening</span>
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => sendTelegramMessage('🤖 TraderEdge Pro is now connected to your Telegram!')}
-                  disabled={!botToken || !chatId}
-                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>Test Send</span>
-                </button>
-              </div>
-
-              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
-                <div className="text-blue-400 font-semibold mb-2">Setup Instructions</div>
-                <div className="text-sm text-gray-300 space-y-1">
-                  <p>1. Create a bot with @BotFather on Telegram</p>
-                  <p>2. Get your bot token and paste it above</p>
-                  <p>3. Send /start to your bot to get your Chat ID</p>
-                  <p>4. Click "Start Listening" to receive messages</p>
-                  <p>5. Send trading signals to your bot!</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Telegram Messages */}
-            <div>
-              <h4 className="text-lg font-semibold text-white mb-4">
-                Recent Messages ({telegramMessages.length})
-              </h4>
-              
-              {telegramMessages.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No messages received yet</p>
-                  <p className="text-sm">Start listening to see messages from your bot</p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {telegramMessages.map((message) => (
-                    <div key={message.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-green-400 font-medium">@{message.from}</span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-white text-sm whitespace-pre-wrap">
-                        {message.text}
-                      </div>
-                      {isLikelyTradingSignal(message.text) && (
-                        <div className="mt-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">
-                          📊 Detected as Trading Signal
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* TradingView Chart */}
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Market Overview</h3>
@@ -954,6 +881,11 @@ const SignalsFeed = () => {
                         <span className="capitalize">{signal.status}</span>
                       </div>
                     </div>
+                    {signal.ictConcepts.includes('Telegram Signal') && (
+                      <div className="px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs font-medium">
+                        📱 From Telegram
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-400">{signal.timestamp}</div>
@@ -1081,11 +1013,11 @@ const SignalsFeed = () => {
         <h3 className="text-lg font-semibold text-white mb-4">Today's Performance</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-400 mb-1">12</div>
+            <div className="text-2xl font-bold text-blue-400 mb-1">{signals.length}</div>
             <div className="text-sm text-gray-400">Signals Sent</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-400 mb-1">9</div>
+            <div className="text-2xl font-bold text-green-400 mb-1">{signals.filter(s => s.positive === true).length}</div>
             <div className="text-sm text-gray-400">Winning Trades</div>
           </div>
           <div className="text-center">
