@@ -36,10 +36,6 @@ const SignalsFeed = () => {
   const [chatId, setChatId] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [lastUpdateId, setLastUpdateId] = useState(0);
-  const [showTelegramPanel, setShowTelegramPanel] = useState(false);
-  const [botToken, setBotToken] = useState('');
-  const [chatId, setChatId] = useState('');
-  const [isListening, setIsListening] = useState(false);
   const [lastUpdateId, setLastUpdateId] = useState(0);
 
   // Telegram Bot Integration
