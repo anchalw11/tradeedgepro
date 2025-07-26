@@ -29,6 +29,7 @@ import RiskManagement from './RiskManagement';
 import AlertSystem from './AlertSystem';
 import LivePriceTicker from './LivePriceTicker';
 import TradingChart from './TradingChart';
+import WebhookTester from './WebhookTester';
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -59,6 +60,7 @@ const Dashboard = () => {
     { id: 'analytics', label: 'Performance', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'risk', label: 'Risk Management', icon: <Shield className="w-4 h-4" /> },
     { id: 'alerts', label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
+    { id: 'webhooks', label: 'Webhook Testing', icon: <Activity className="w-4 h-4" /> },
     ...(user.membershipTier === 'enterprise'
       ? [{ id: 'journal', label: 'Trading Journal', icon: <BookOpen className="w-4 h-4" /> }]
       : [])
@@ -205,6 +207,8 @@ const Dashboard = () => {
         return <RiskManagement />;
       case 'alerts':
         return <AlertSystem />;
+      case 'webhooks':
+        return <WebhookTester />;
       default:
         return null;
     }
