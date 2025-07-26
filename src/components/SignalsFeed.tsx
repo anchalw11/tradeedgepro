@@ -36,6 +36,12 @@ const SignalsFeed = () => {
   const [chatId, setChatId] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [lastUpdateId, setLastUpdateId] = useState(0);
+  const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
+  const [showTelegramPanel, setShowTelegramPanel] = useState(false);
+  const [botToken, setBotToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [lastUpdateId, setLastUpdateId] = useState(0);
 
   // Telegram Bot Integration
   const startTelegramListener = async () => {
@@ -369,6 +375,167 @@ const SignalsFeed = () => {
     navigator.clipboard.writeText(webhookUrl);
   };
 
+  // Telegram Bot Integration
+  const startTelegramListener = async () => {
+    if (!botToken) {
+      alert('Please enter your Telegram Bot Token');
+      return;
+    }
+    
+    setIsListening(true);
+    
+    // Start polling for messages
+    const pollMessages = async () => {
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
+        const data = await response.json();
+        
+        if (data.ok && data.result.length > 0) {
+          data.result.forEach((update: any) => {
+            if (update.message && update.message.text) {
+              const newMessage = {
+                id: update.update_id,
+                text: update.message.text,
+                timestamp: new Date(update.message.date * 1000).toISOString(),
+                from: update.message.from.first_name || update.message.from.username,
+                chat_id: update.message.chat.id,
+                message_id: update.message.message_id
+              };
+              
+              setTelegramMessages(prev => [newMessage, ...prev.slice(0, 49)]); // Keep last 50 messages
+              setLastUpdateId(update.update_id);
+              
+              // Auto-detect if message looks like a trading signal
+              if (isLikelyTradingSignal(update.message.text)) {
+                parseAndAddSignal(update.message.text, newMessage);
+              }
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error polling Telegram messages:', error);
+      }
+      
+      // Continue polling if still listening
+      if (isListening) {
+        setTimeout(pollMessages, 1000); // Poll every second
+      }
+    };
+    
+    pollMessages();
+  };
+
+  const stopTelegramListener = () => {
+    setIsListening(false);
+  };
+
+  // Check if message looks like a trading signal
+  const isLikelyTradingSignal = (text: string): boolean => {
+    const signalKeywords = ['buy', 'sell', 'entry', 'tp', 'sl', 'stop loss', 'take profit', 'eurusd', 'gbpusd', 'usdjpy', 'xauusd'];
+    const lowerText = text.toLowerCase();
+    return signalKeywords.some(keyword => lowerText.includes(keyword));
+  };
+
+  // Parse telegram message and convert to signal format
+  const parseAndAddSignal = (text: string, message: any) => {
+    try {
+      const lines = text.split('\n').map(line => line.trim());
+      let pair = '';
+      let type = '';
+      let entry = '';
+      let stopLoss = '';
+      let takeProfit: string[] = [];
+      
+      lines.forEach(line => {
+        const lowerLine = line.toLowerCase();
+        
+        // Extract currency pair
+        const pairMatch = line.match(/(EUR\/USD|GBP\/USD|USD\/JPY|XAU\/USD|AUD\/USD|EURUSD|GBPUSD|USDJPY|XAUUSD|AUDUSD)/i);
+        if (pairMatch) {
+          pair = pairMatch[1].replace('/', '').toUpperCase();
+        }
+        
+        // Extract buy/sell
+        if (lowerLine.includes('buy')) type = 'Buy';
+        if (lowerLine.includes('sell')) type = 'Sell';
+        
+        // Extract entry price
+        if (lowerLine.includes('entry')) {
+          const priceMatch = line.match(/(\d+\.?\d*)/);
+          if (priceMatch) entry = priceMatch[1];
+        }
+        
+        // Extract stop loss
+        if (lowerLine.includes('sl') || lowerLine.includes('stop loss')) {
+          const priceMatch = line.match(/(\d+\.?\d*)/);
+          if (priceMatch) stopLoss = priceMatch[1];
+        }
+        
+        // Extract take profit
+        if (lowerLine.includes('tp') || lowerLine.includes('take profit')) {
+          const priceMatches = line.match(/(\d+\.?\d*)/g);
+          if (priceMatches) takeProfit = priceMatches;
+        }
+      });
+      
+      if (pair && type && entry) {
+        const newSignal: Signal = {
+          id: Date.now(),
+          pair,
+          type: type as 'Buy' | 'Sell',
+          entry,
+          stopLoss: stopLoss || '0',
+          takeProfit: takeProfit.length > 0 ? takeProfit : [entry],
+          confidence: 85,
+          timeframe: '15m',
+          timestamp: 'Just now',
+          status: 'active',
+          analysis: `Signal from Telegram: ${text.substring(0, 100)}...`,
+          ictConcepts: ['Telegram Signal'],
+          rsr: '1:2',
+          pips: 'Pending',
+          positive: null
+        };
+        
+        // Add to signals (you'd need to modify your signals state to be dynamic)
+        console.log('New signal from Telegram:', newSignal);
+      }
+    } catch (error) {
+      console.error('Error parsing Telegram signal:', error);
+    }
+  };
+
+  // Send message to Telegram
+  const sendTelegramMessage = async (message: string) => {
+    if (!botToken || !chatId) {
+      alert('Please configure Bot Token and Chat ID');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+      
+      const data = await response.json();
+      if (data.ok) {
+        console.log('Message sent to Telegram successfully');
+      } else {
+        console.error('Failed to send message to Telegram:', data);
+      }
+    } catch (error) {
+      console.error('Error sending message to Telegram:', error);
+    }
+  };
+
   const signals: Signal[] = [
     {
       id: 1,
@@ -541,6 +708,14 @@ const SignalsFeed = () => {
               <Bot className="w-4 h-4" />
               <span>Telegram Bot</span>
             </button>
+            
+            <button
+              onClick={() => setShowTelegramPanel(!showTelegramPanel)}
+              className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <Bot className="w-4 h-4" />
+              <span>Telegram Bot</span>
+            </button>
           </div>
         </div>
       </div>
@@ -645,6 +820,131 @@ const SignalsFeed = () => {
                         <div>Status: {result.statusCode}</div>
                         <div>Response: {result.response}</div>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Telegram Bot Integration Panel */}
+      {showTelegramPanel && (
+        <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Bot className="w-6 h-6 text-green-400" />
+            <h3 className="text-xl font-semibold text-white">Telegram Bot Integration</h3>
+            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+              isListening ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
+            }`}>
+              {isListening ? 'Listening' : 'Stopped'}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bot Configuration */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Bot Token
+                  <span className="text-xs text-gray-400 ml-2">(Get from @BotFather)</span>
+                </label>
+                <input
+                  type="password"
+                  value={botToken}
+                  onChange={(e) => setBotToken(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
+                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Chat ID
+                  <span className="text-xs text-gray-400 ml-2">(Your Telegram Chat ID)</span>
+                </label>
+                <input
+                  type="text"
+                  value={chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
+                  placeholder="123456789"
+                />
+              </div>
+
+              <div className="flex space-x-3">
+                {!isListening ? (
+                  <button
+                    onClick={startTelegramListener}
+                    disabled={!botToken}
+                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Start Listening</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopTelegramListener}
+                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    <span>Stop Listening</span>
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => sendTelegramMessage('🤖 TraderEdge Pro is now connected to your Telegram!')}
+                  disabled={!botToken || !chatId}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Test Send</span>
+                </button>
+              </div>
+
+              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
+                <div className="text-blue-400 font-semibold mb-2">Setup Instructions</div>
+                <div className="text-sm text-gray-300 space-y-1">
+                  <p>1. Create a bot with @BotFather on Telegram</p>
+                  <p>2. Get your bot token and paste it above</p>
+                  <p>3. Send /start to your bot to get your Chat ID</p>
+                  <p>4. Click "Start Listening" to receive messages</p>
+                  <p>5. Send trading signals to your bot!</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Telegram Messages */}
+            <div>
+              <h4 className="text-lg font-semibold text-white mb-4">
+                Recent Messages ({telegramMessages.length})
+              </h4>
+              
+              {telegramMessages.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No messages received yet</p>
+                  <p className="text-sm">Start listening to see messages from your bot</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {telegramMessages.map((message) => (
+                    <div key={message.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-green-400 font-medium">@{message.from}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-white text-sm whitespace-pre-wrap">
+                        {message.text}
+                      </div>
+                      {isLikelyTradingSignal(message.text) && (
+                        <div className="mt-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">
+                          📊 Detected as Trading Signal
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
