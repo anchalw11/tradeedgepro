@@ -30,6 +30,8 @@ import AlertSystem from './AlertSystem';
 import LivePriceTicker from './LivePriceTicker';
 import TradingChart from './TradingChart';
 import WebhookTester from './WebhookTester';
+import TelegramWebhookSetup from './TelegramWebhookSetup';
+import { Bot } from 'lucide-react';
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -61,6 +63,7 @@ const Dashboard = () => {
     { id: 'risk', label: 'Risk Management', icon: <Shield className="w-4 h-4" /> },
     { id: 'alerts', label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
     { id: 'webhooks', label: 'Webhook Testing', icon: <Activity className="w-4 h-4" /> },
+    { id: 'telegram-setup', label: 'Telegram Setup', icon: <Bot className="w-4 h-4" /> },
     ...(user.membershipTier === 'enterprise'
       ? [{ id: 'journal', label: 'Trading Journal', icon: <BookOpen className="w-4 h-4" /> }]
       : [])
@@ -209,6 +212,8 @@ const Dashboard = () => {
         return <AlertSystem />;
       case 'webhooks':
         return <WebhookTester />;
+      case 'telegram-setup':
+        return <TelegramWebhookSetup />;
       default:
         return null;
     }
