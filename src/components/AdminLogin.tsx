@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Shield, Eye, EyeOff, AlertCircle, TrendingUp } from 'lucide-react';
+import { Shield, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import AdminDashboard from './AdminDashboard';
 
-interface AdminLoginProps {
-  onLogin: (credentials: { username: string; password: string }) => void;
-}
-
-const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
+const AdminLogin: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [credentials, setCredentials] = useState({
     username: '',

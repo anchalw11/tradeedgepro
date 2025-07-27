@@ -11,7 +11,6 @@ import TradingPlanGeneration from './components/TradingPlanGenerator';
 import PaymentFlow from './components/PaymentFlow';
 import Dashboard from './components/Dashboard';
 import AdminLogin from './components/AdminLogin';
-import AdminDashboard from './components/AdminDashboard';
 import { UserProvider } from './contexts/UserContext';
 import { TradingPlanProvider } from './contexts/TradingPlanContext';
 import { AdminProvider } from './contexts/AdminContext';
@@ -36,7 +35,7 @@ function App() {
                   <Route path="/setup/risk" element={<RiskConfiguration />} />
                   <Route path="/setup/plan" element={<TradingPlanGeneration />} />
                   <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/admin" element={<AdminLogin onLogin={() => {}} />} />
+                  <Route path="/admin" element={<AdminLogin />} />
                 </Routes>
               </div>
             </Router>
