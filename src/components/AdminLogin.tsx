@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Shield, Eye, EyeOff, AlertCircle, TrendingUp } from 'lucide-react';
+import AdminDashboard from './AdminDashboard';
 
 interface AdminLoginProps {
   onLogin: (credentials: { username: string; password: string }) => void;
 }
 
 const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [credentials, setCredentials] = useState({
     username: '',
     password: ''
@@ -21,6 +23,15 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
     password: 'TradePro_Admin_9X7K2M'
   };
 
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCredentials({ username: '', password: '' });
+  };
+
+  if (isAuthenticated) {
+    return <AdminDashboard onLogout={handleLogout} />;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -32,7 +43,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
         credentials.username === ADMIN_CREDENTIALS.username &&
         credentials.password === ADMIN_CREDENTIALS.password
       ) {
-        onLogin(credentials);
+        setIsAuthenticated(true);
       } else {
         setError('Invalid credentials. Access denied.');
       }
