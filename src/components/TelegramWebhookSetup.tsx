@@ -397,6 +397,29 @@ const TelegramWebhookSetup: React.FC = () => {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
+            {/* URL Detection Status */}
+            <div className="bg-yellow-600/20 border border-yellow-600 rounded-lg p-4">
+              <div className="text-yellow-400 font-semibold mb-2">🌐 Webhook URL Requirements</div>
+              <div className="text-sm text-gray-300 space-y-1">
+                <p>• Must be publicly accessible from the internet</p>
+                <p>• Cannot use localhost or 127.0.0.1</p>
+                <p>• For local development, use ngrok or similar tunneling service</p>
+                <p>• For cloud environments, use the public domain</p>
+              </div>
+            </div>
+
+            {/* Ngrok Instructions */}
+            <div className="bg-gray-700/50 rounded-lg p-4">
+              <div className="text-white font-semibold mb-2">🔗 Using ngrok for Local Development</div>
+              <div className="text-sm text-gray-300 space-y-2">
+                <p>1. Install ngrok: <code className="bg-gray-600 px-1 rounded">npm install -g ngrok</code></p>
+                <p>2. Start your webhook server: <code className="bg-gray-600 px-1 rounded">npm run telegram-webhook</code></p>
+                <p>3. In another terminal: <code className="bg-gray-600 px-1 rounded">ngrok http 3001</code></p>
+                <p>4. Copy the https URL from ngrok (e.g., https://abc123.ngrok.io)</p>
+                <p>5. Use: <code className="bg-gray-600 px-1 rounded">https://abc123.ngrok.io/telegram/webhook</code></p>
+              </div>
+            </div>
+
             <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
               <div className="text-blue-400 font-semibold mb-2">Step 1: Create Bot</div>
               <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
