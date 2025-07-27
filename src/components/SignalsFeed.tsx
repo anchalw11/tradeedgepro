@@ -4,6 +4,7 @@ import TradingViewMiniChart from './TradingViewMiniChart';
 import { useTradingPlan } from '../contexts/TradingPlanContext';
 import { addTrade } from '../../trading-journal-frontend/src/api';
 import { telegramService, TelegramMessage } from '../services/telegramService';
+import { useSignalDistribution } from './SignalDistributionService';
 
 interface Signal {
   id: number;
@@ -24,6 +25,7 @@ interface Signal {
 }
 
 const SignalsFeed = () => {
+  const { getPersonalizedSignals } = useSignalDistribution();
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [showWebhookPanel, setShowWebhookPanel] = useState(false);
@@ -125,6 +127,9 @@ const SignalsFeed = () => {
       positive: false
     }
   ]);
+
+  // Get personalized signals for current user (demo user ID)
+  const personalizedSignals = getPersonalizedSignals('current_user_id');
 
   // Check API status and initialize
   useEffect(() => {
@@ -835,6 +840,70 @@ Target- 1.23700`;
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Personalized Signals from Admin */}
+      {personalizedSignals.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-600 rounded-xl p-6 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <Shield className="w-6 h-6 text-purple-400" />
+            <h3 className="text-xl font-semibold text-white">Personalized Signals from Signal Master</h3>
+          </div>
+          <div className="space-y-4">
+            {personalizedSignals.slice(0, 3).map((personalizedSignal, index) => (
+              <div key={index} className="bg-gray-700/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-white font-semibold">{personalizedSignal.originalSignal.pair}</span>
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      personalizedSignal.originalSignal.direction === 'BUY' 
+                        ? 'bg-green-600/20 text-green-400' 
+                        : 'bg-red-600/20 text-red-400'
+                    }`}>
+                      {personalizedSignal.originalSignal.direction}
+                    </span>
+                    <span className="text-purple-400 text-xs font-medium">PERSONALIZED</span>
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {personalizedSignal.timestamp.toLocaleTimeString()}
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-4 gap-3 text-sm mb-3">
+                  <div>
+                    <div className="text-gray-400">Entry</div>
+                    <div className="text-blue-400 font-semibold">{personalizedSignal.personalizedEntry}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Stop Loss</div>
+                    <div className="text-red-400 font-semibold">{personalizedSignal.personalizedStopLoss}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Take Profit</div>
+                    <div className="text-green-400 font-semibold">{personalizedSignal.personalizedTakeProfit[0]}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Position Size</div>
+                    <div className="text-purple-400 font-semibold">{personalizedSignal.positionSize} lots</div>
+                  </div>
+                </div>
+                
+                <div className="bg-gray-600/50 rounded p-3 text-xs">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-gray-400">Risk Amount: </span>
+                      <span className="text-red-400">${personalizedSignal.riskAmount.toFixed(0)}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Reward Potential: </span>
+                      <span className="text-green-400">${personalizedSignal.rewardAmount.toFixed(0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
