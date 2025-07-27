@@ -3,6 +3,7 @@ import { Zap, TrendingUp, TrendingDown, Clock, Target, AlertTriangle, CheckCircl
 import TradingViewMiniChart from './TradingViewMiniChart';
 import { useTradingPlan } from '../contexts/TradingPlanContext';
 import { addTrade } from '../../trading-journal-frontend/src/api';
+import { telegramService, TelegramMessage } from '../services/telegramService';
 
 interface Signal {
   id: number;
@@ -33,9 +34,10 @@ const SignalsFeed = () => {
   const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
   const [showTelegramPanel, setShowTelegramPanel] = useState(true); // Start with panel open
   const [botToken, setBotToken] = useState('');
-  const [chatId, setChatId] = useState('@traderedgepro_bot');
+  const [chatId, setChatId] = useState('');
   const [isListening, setIsListening] = useState(true); // Start listening by default
   const [lastUpdateId, setLastUpdateId] = useState(0);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [signals, setSignals] = useState<Signal[]>([
     {
       id: 1,
@@ -124,82 +126,47 @@ const SignalsFeed = () => {
     }
   ]);
 
-  // Simulate receiving messages from your Telegram bot
+  // Check API status and initialize
   useEffect(() => {
-    // Add your actual messages from the screenshot
-    const simulatedMessages = [
-      {
-        id: 1,
-        text: '/start',
-        timestamp: new Date(Date.now() - 6 * 60 * 1000).toISOString(), // 6 minutes ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 1
-      },
-      {
-        id: 2,
-        text: 'hii',
-        timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 2
-      },
-      {
-        id: 3,
-        text: 'hi',
-        timestamp: new Date(Date.now() - 4 * 60 * 1000).toISOString(), // 4 minutes ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 3
-      },
-      {
-        id: 4,
-        text: 'hi',
-        timestamp: new Date(Date.now() - 3 * 60 * 1000).toISOString(), // 3 minutes ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 4
-      },
-      {
-        id: 5,
-        text: 'hii',
-        timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 5
-      },
-      {
-        id: 6,
-        text: '/start',
-        timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(), // 1 minute ago
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 6
-      },
-      {
-        id: 7,
-        text: `asset- EUR/USD
-Entry - 1.23679
-Stop loss- 1.23600
-Target- 1.23700`,
-        timestamp: new Date().toISOString(), // Just now
-        from: 'You',
-        chat_id: '@traderedgepro_bot',
-        message_id: 7
+    const checkApiStatus = async () => {
+      const isOnline = await telegramService.checkHealth();
+      setApiStatus(isOnline ? 'online' : 'offline');
+      
+      if (isOnline) {
+        // Load existing messages
+        const messages = await telegramService.getMessages();
+        setTelegramMessages(messages);
       }
-    ];
+    };
 
-    setTelegramMessages(simulatedMessages);
-
-    // Parse the trading signal and add it to signals
-    const tradingSignalMessage = simulatedMessages[6]; // The EUR/USD signal
-    if (tradingSignalMessage) {
-      const newSignal = parseMessageToSignal(tradingSignalMessage.text, tradingSignalMessage);
-      if (newSignal) {
-        setSignals(prev => [newSignal, ...prev]);
-      }
-    }
+    checkApiStatus();
   }, []);
+
+  // Subscribe to real-time messages when listening
+  useEffect(() => {
+    if (isListening && apiStatus === 'online') {
+      telegramService.subscribe('signals-feed', (message: TelegramMessage) => {
+        setTelegramMessages(prev => [message, ...prev.slice(0, 49)]);
+        
+        // Auto-detect and parse trading signals
+        if (isLikelyTradingSignal(message.text)) {
+          const newSignal = parseMessageToSignal(message.text, message);
+          if (newSignal) {
+            setSignals(prev => [newSignal, ...prev]);
+          }
+        }
+      });
+      
+      telegramService.startListening();
+    } else {
+      telegramService.unsubscribe('signals-feed');
+      telegramService.stopListening();
+    }
+    
+    return () => {
+      telegramService.unsubscribe('signals-feed');
+    };
+  }, [isListening, apiStatus]);
 
   // Parse telegram message and convert to signal format
   const parseMessageToSignal = (text: string, message: any): Signal | null => {
@@ -313,14 +280,16 @@ Target- 1.23700`,
 
   const stopTelegramListener = () => {
     setIsListening(false);
+    telegramService.stopListening();
   };
 
   const startTelegramListener = async () => {
-    if (!botToken) {
-      alert('Please enter your Telegram Bot Token');
+    if (apiStatus !== 'online') {
+      alert('Telegram API is not running. Please start the webhook server first.');
       return;
     }
     setIsListening(true);
+    telegramService.startListening();
   };
 
   // Send message to Telegram
@@ -578,55 +547,69 @@ Target- 1.23700`,
           <div className="flex items-center space-x-3 mb-6">
             <Bot className="w-6 h-6 text-green-400" />
             <h3 className="text-xl font-semibold text-white">Telegram Bot Integration</h3>
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-              isListening ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'
+            <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1 ${
+              apiStatus === 'online' ? 'bg-green-600/20 text-green-400' : 
+              apiStatus === 'offline' ? 'bg-red-600/20 text-red-400' : 'bg-yellow-600/20 text-yellow-400'
             }`}>
-              {isListening ? 'Listening' : 'Stopped'}
+              <div className={`w-2 h-2 rounded-full ${
+                apiStatus === 'online' ? 'bg-green-400' : 
+                apiStatus === 'offline' ? 'bg-red-400' : 'bg-yellow-400'
+              } ${apiStatus === 'online' && isListening ? 'animate-pulse' : ''}`} />
+              <span>
+                {apiStatus === 'checking' ? 'Checking...' :
+                 apiStatus === 'offline' ? 'API Offline' :
+                 isListening ? 'Listening' : 'Ready'}
+              </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Bot Configuration */}
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Bot Token
-                  <span className="text-xs text-gray-400 ml-2">(Get from @BotFather)</span>
-                </label>
-                <input
-                  type="password"
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                />
+              {/* API Status */}
+              <div className={`p-4 rounded-lg border ${
+                apiStatus === 'online' ? 'bg-green-600/20 border-green-600' :
+                apiStatus === 'offline' ? 'bg-red-600/20 border-red-600' :
+                'bg-yellow-600/20 border-yellow-600'
+              }`}>
+                <div className={`font-semibold mb-2 ${
+                  apiStatus === 'online' ? 'text-green-400' :
+                  apiStatus === 'offline' ? 'text-red-400' :
+                  'text-yellow-400'
+                }`}>
+                  {apiStatus === 'online' ? '✅ Webhook API Online' :
+                   apiStatus === 'offline' ? '❌ Webhook API Offline' :
+                   '⏳ Checking API Status...'}
+                </div>
+                <div className="text-sm text-gray-300">
+                  {apiStatus === 'online' ? 'Ready to receive Telegram messages' :
+                   apiStatus === 'offline' ? 'Please start the webhook server first' :
+                   'Connecting to webhook API...'}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Chat ID
-                  <span className="text-xs text-gray-400 ml-2">(Your Telegram Chat ID)</span>
-                </label>
-                <input
-                  type="text"
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-green-500"
-                  placeholder="@traderedgepro_bot"
-                />
-              </div>
+              {apiStatus === 'online' && (
+                <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
+                  <div className="text-blue-400 font-semibold mb-2">Webhook URL</div>
+                  <div className="text-sm text-gray-300 space-y-2">
+                    <div className="bg-gray-700 rounded p-2 font-mono text-xs break-all">
+                      http://localhost:3001/telegram/webhook
+                    </div>
+                    <p>Set this URL as your Telegram bot webhook</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex space-x-3">
-                {!isListening ? (
+                {apiStatus === 'online' && !isListening ? (
                   <button
                     onClick={startTelegramListener}
-                    disabled={!botToken}
-                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
                   >
                     <MessageSquare className="w-4 h-4" />
                     <span>Start Listening</span>
                   </button>
-                ) : (
+                ) : apiStatus === 'online' && isListening ? (
                   <button
                     onClick={stopTelegramListener}
                     className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -637,25 +620,42 @@ Target- 1.23700`,
                 )}
                 
                 <button
-                  onClick={() => sendTelegramMessage('🤖 TraderEdge Pro is now connected to your Telegram!')}
-                  disabled={!botToken || !chatId}
-                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                  onClick={async () => {
+                    await telegramService.checkHealth();
+                    const isOnline = await telegramService.checkHealth();
+                    setApiStatus(isOnline ? 'online' : 'offline');
+                  }}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
                 >
-                  <Send className="w-4 h-4" />
-                  <span>Test Send</span>
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Refresh Status</span>
                 </button>
               </div>
 
-              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
+              {apiStatus === 'offline' && (
+                <div className="bg-red-600/20 border border-red-600 rounded-lg p-4">
+                  <div className="text-red-400 font-semibold mb-2">Start Webhook Server</div>
+                  <div className="text-sm text-gray-300 space-y-1">
+                    <p>Run this command in a new terminal:</p>
+                    <div className="bg-gray-700 rounded p-2 font-mono text-xs">
+                      npx ts-node src/api/telegramWebhook.ts
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {apiStatus === 'online' && (
+                <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4">
                 <div className="text-blue-400 font-semibold mb-2">Setup Instructions</div>
                 <div className="text-sm text-gray-300 space-y-1">
-                  <p>1. Create a bot with @BotFather on Telegram</p>
-                  <p>2. Get your bot token and paste it above</p>
-                  <p>3. Send /start to your bot to get your Chat ID</p>
-                  <p>4. Click "Start Listening" to receive messages</p>
-                  <p>5. Send trading signals to your bot!</p>
+                    <p>1. Create a bot with @BotFather on Telegram</p>
+                    <p>2. Set webhook URL: /setwebhook</p>
+                    <p>3. Use: http://localhost:3001/telegram/webhook</p>
+                    <p>4. Click "Start Listening" to receive messages</p>
+                    <p>5. Send messages to your bot!</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Manual Message Input for Testing */}
               <div className="bg-gray-700/50 rounded-lg p-4">
