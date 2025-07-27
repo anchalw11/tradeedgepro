@@ -5,12 +5,50 @@ import { TelegramWebhookManager } from '../utils/telegramWebhookSetup';
 const TelegramWebhookSetup: React.FC = () => {
   const [botToken, setBotToken] = useState('8277818041:AAGAgj4MoUuMbg8ZnkAhsbawtJkioqRJWj4');
   const [webhookUrl, setWebhookUrl] = useState('http://localhost:3001/telegram/webhook');
+  const [detectedUrl, setDetectedUrl] = useState('');
   const [chatId, setChatId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [webhookStatus, setWebhookStatus] = useState<'unknown' | 'set' | 'not_set' | 'error'>('unknown');
   const [webhookInfo, setWebhookInfo] = useState<any>(null);
   const [botInfo, setBotInfo] = useState<any>(null);
   const [logs, setLogs] = useState<Array<{ type: 'success' | 'error' | 'info'; message: string; timestamp: Date }>>([]);
+
+  // Detect the correct webhook URL
+  useEffect(() => {
+    const detectWebhookUrl = () => {
+      // Get current domain and port
+      const protocol = window.location.protocol;
+      const hostname = window.location.hostname;
+      const port = window.location.port;
+      
+      // For local development
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        setDetectedUrl('http://localhost:3001/telegram/webhook');
+        addLog('info', 'Local development detected - use ngrok for public URL');
+        return;
+      }
+      
+      // For StackBlitz/WebContainer environments
+      if (hostname.includes('webcontainer') || hostname.includes('stackblitz')) {
+        // Replace port 5173 with 3001 for webhook server
+        const webhookHost = hostname.replace(/--5173--/, '--3001--');
+        const publicUrl = `${protocol}//${webhookHost}/telegram/webhook`;
+        setDetectedUrl(publicUrl);
+        setWebhookUrl(publicUrl);
+        addLog('success', `Detected public webhook URL: ${publicUrl}`);
+        return;
+      }
+      
+      // For other cloud environments
+      const baseUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
+      const publicUrl = `${baseUrl}:3001/telegram/webhook`;
+      setDetectedUrl(publicUrl);
+      setWebhookUrl(publicUrl);
+      addLog('info', `Generated webhook URL: ${publicUrl}`);
+    };
+
+    detectWebhookUrl();
+  }, []);
 
   const addLog = (type: 'success' | 'error' | 'info', message: string) => {
     setLogs(prev => [{ type, message, timestamp: new Date() }, ...prev.slice(0, 9)]);
@@ -226,13 +264,19 @@ const TelegramWebhookSetup: React.FC = () => {
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Webhook URL
               </label>
+              {detectedUrl && (
+                <div className="mb-2 p-3 bg-blue-600/20 border border-blue-600 rounded-lg">
+                  <div className="text-blue-400 font-semibold text-sm mb-1">Detected Public URL:</div>
+                  <div className="text-blue-300 text-xs font-mono break-all">{detectedUrl}</div>
+                </div>
+              )}
               <div className="flex space-x-2">
                 <input
                   type="url"
                   value={webhookUrl}
                   onChange={(e) => setWebhookUrl(e.target.value)}
                   className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-                  placeholder="http://localhost:3001/telegram/webhook"
+                  placeholder="Enter your public webhook URL"
                 />
                 <button
                   onClick={() => copyToClipboard(webhookUrl)}
@@ -241,6 +285,9 @@ const TelegramWebhookSetup: React.FC = () => {
                   <Copy className="w-4 h-4" />
                 </button>
               </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Must be publicly accessible (not localhost)
+              </p>
             </div>
 
             <div>
