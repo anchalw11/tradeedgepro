@@ -617,7 +617,7 @@ const SignalsFeed = () => {
                     <XCircle className="w-4 h-4" />
                     <span>Stop Listening</span>
                   </button>
-                )}
+                ) : null}
                 
                 <button
                   onClick={async () => {
