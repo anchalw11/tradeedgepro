@@ -3,7 +3,7 @@ import { Bot, Globe, CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Send,
 import { TelegramWebhookManager } from '../utils/telegramWebhookSetup';
 
 const TelegramWebhookSetup: React.FC = () => {
-  const [botToken, setBotToken] = useState('');
+  const [botToken, setBotToken] = useState('8277818041:AAGAgj4MoUuMbg8ZnkAhsbawtJkioqRJWj4');
   const [webhookUrl, setWebhookUrl] = useState('http://localhost:3001/telegram/webhook');
   const [chatId, setChatId] = useState('');
   const [isLoading, setIsLoading] = useState(false);

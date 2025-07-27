@@ -33,7 +33,7 @@ const SignalsFeed = () => {
   const { propFirm, accountConfig, riskConfig } = useTradingPlan();
   const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
   const [showTelegramPanel, setShowTelegramPanel] = useState(true); // Start with panel open
-  const [botToken, setBotToken] = useState('');
+  const [botToken, setBotToken] = useState('8277818041:AAGAgj4MoUuMbg8ZnkAhsbawtJkioqRJWj4');
   const [chatId, setChatId] = useState('');
   const [isListening, setIsListening] = useState(true); // Start listening by default
   const [lastUpdateId, setLastUpdateId] = useState(0);
